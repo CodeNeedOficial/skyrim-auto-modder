@@ -1,3 +1,21 @@
+// ╔════════════════════════════════════════════════════════════════════════════════╗
+// ║ SKYRIM AUTO MODDER - TAURI BACKEND (lib.rs)                                  ║
+// ║ Complete backend logic for mod manager app                                    ║
+// ╚════════════════════════════════════════════════════════════════════════════════╝
+//
+// FILE ORGANIZATION:
+// 1. IMPORTS & CONSTANTS (lines 1-20)
+// 2. TYPE DEFINITIONS (lines 22-138)  - Data structures for serialization
+// 3. TAURI COMMANDS (lines 140-1211)  - Frontend entry points
+// 4. HELPER FUNCTIONS (lines 409-1246) - Internal utilities
+// 5. ENTRY POINT (lines 1214-1246)    - App initialization
+//
+// Find functions by searching: 'fn function_name()' or 'SECTION' marker
+// ════════════════════════════════════════════════════════════════════════════════════
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// SECTION 1: IMPORTS & CONSTANTS (lines 1-20)
+// ════════════════════════════════════════════════════════════════════════════════════
 use reqwest::{blocking::Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -19,6 +37,10 @@ const APP_NAME: &str = "skyrim-auto-modder";
 const APP_VERSION: &str = "0.1.0";
 const NEXUS_PROTOCOL_VERSION: &str = "1.0.0";
 
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// SECTION 2: TYPE DEFINITIONS (lines 22-138)
+// ════════════════════════════════════════════════════════════════════════════════════
 #[derive(Debug, Serialize)]
 struct SkyrimInstallation {
     name: String,
@@ -137,7 +159,13 @@ struct NexusResolvedLink {
     expires: Option<String>,
 }
 
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// SECTION 3: TAURI COMMANDS - INSTALLATION (lines 141-169)
+// Frontend entry points exposed to TypeScript via IPC
+// ════════════════════════════════════════════════════════════════════════════════════
 #[tauri::command]
+// → Function: scan_skyrim_installations()
 fn scan_skyrim_installations() -> Result<Vec<SkyrimInstallation>, String> {
     let mut candidates = BTreeSet::new();
 
@@ -156,6 +184,7 @@ fn scan_skyrim_installations() -> Result<Vec<SkyrimInstallation>, String> {
 }
 
 #[tauri::command]
+// → Function: validate_skyrim_path()
 fn validate_skyrim_path(path: String) -> Result<SkyrimInstallation, String> {
     let path = PathBuf::from(path);
     if !path.exists() {
@@ -169,6 +198,12 @@ fn validate_skyrim_path(path: String) -> Result<SkyrimInstallation, String> {
 }
 
 #[tauri::command]
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// SECTION 4: TAURI COMMANDS - NEXUS API (lines 172-206)
+// Nexus Mods API authentication and configuration
+// ════════════════════════════════════════════════════════════════════════════════════
+// → Function: save_nexus_api_key()
 fn save_nexus_api_key(api_key: String) -> Result<NexusAuthStatus, String> {
     let api_key = api_key.trim();
     if api_key.is_empty() {
@@ -192,6 +227,7 @@ fn save_nexus_api_key(api_key: String) -> Result<NexusAuthStatus, String> {
 }
 
 #[tauri::command]
+// → Function: get_nexus_auth_status()
 fn get_nexus_auth_status() -> Result<NexusAuthStatus, String> {
     let Some(api_key) = load_nexus_api_key()? else {
         return Ok(NexusAuthStatus {
@@ -205,6 +241,12 @@ fn get_nexus_auth_status() -> Result<NexusAuthStatus, String> {
 }
 
 #[tauri::command]
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// SECTION 5: TAURI COMMANDS - INSTALLED MODS (lines 208-291)
+// List and manage installed mods
+// ════════════════════════════════════════════════════════════════════════════════════
+// → Function: list_installed_mods()
 fn list_installed_mods() -> Result<Vec<InstalledMod>, String> {
     let registry_dir = installed_mods_dir()?;
     if !registry_dir.is_dir() {
@@ -223,6 +265,7 @@ fn list_installed_mods() -> Result<Vec<InstalledMod>, String> {
 }
 
 #[tauri::command]
+// → Function: uninstall_mod()
 fn uninstall_mod(id: String) -> Result<UninstallResult, String> {
     let manifest_path = installed_mod_manifest_path(&id)?;
     if !manifest_path.is_file() {
@@ -291,6 +334,12 @@ fn uninstall_mod(id: String) -> Result<UninstallResult, String> {
 }
 
 #[tauri::command]
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// SECTION 6: TAURI COMMANDS - LOGS (lines 294-328)
+// Installation history management
+// ════════════════════════════════════════════════════════════════════════════════════
+// → Function: list_install_logs()
 fn list_install_logs() -> Result<Vec<InstallLogEntry>, String> {
     let path = install_logs_path()?;
     if !path.is_file() {
@@ -304,6 +353,7 @@ fn list_install_logs() -> Result<Vec<InstallLogEntry>, String> {
 }
 
 #[tauri::command]
+// → Function: clear_install_logs()
 fn clear_install_logs() -> Result<(), String> {
     let path = install_logs_path()?;
     if path.is_file() {
@@ -313,6 +363,7 @@ fn clear_install_logs() -> Result<(), String> {
 }
 
 #[tauri::command]
+// → Function: append_install_log_entry()
 fn append_install_log_entry(action: String, url: String, ok: bool, message: String) -> Result<(), String> {
     let now = timestamp();
     append_install_log(InstallLogEntry {
@@ -328,6 +379,12 @@ fn append_install_log_entry(action: String, url: String, ok: bool, message: Stri
 }
 
 #[tauri::command]
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// SECTION 7: TAURI COMMAND - MOD INSTALLATION (lines 331-407)
+// Main workflow: download → extract → validate → install
+// ════════════════════════════════════════════════════════════════════════════════════
+// → Function: install_mod_from_url()
 fn install_mod_from_url(url: String, game_dir: String) -> Result<ModInstallResult, String> {
     let game_dir = PathBuf::from(game_dir);
     let installation = inspect_installation(&game_dir);
@@ -406,6 +463,12 @@ fn install_mod_from_url(url: String, game_dir: String) -> Result<ModInstallResul
     })
 }
 
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// SECTION 8: HELPER FUNCTIONS - INSTALLATION (lines 417-455)
+// Skyrim installation detection and Steam library scanning
+// ════════════════════════════════════════════════════════════════════════════════════
+// → Function: resolve_download_source()
 fn resolve_download_source(input: &str) -> Result<String, String> {
     if let Some(nexus) = parse_nexus_link(input)? {
         return resolve_nexus_download_url(nexus);
@@ -414,6 +477,7 @@ fn resolve_download_source(input: &str) -> Result<String, String> {
     Ok(input.to_string())
 }
 
+// → Function: inspect_installation()
 fn inspect_installation(game_dir: &Path) -> SkyrimInstallation {
     let canonical_game_dir = game_dir
         .canonicalize()
@@ -454,6 +518,12 @@ fn inspect_installation(game_dir: &Path) -> SkyrimInstallation {
     }
 }
 
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// SECTION 9: HELPER FUNCTIONS - NEXUS API (lines 457-679)
+// Nexus API integration and link parsing
+// ════════════════════════════════════════════════════════════════════════════════════
+// → Function: validate_nexus_api_key()
 fn validate_nexus_api_key(api_key: &str) -> Result<NexusAuthStatus, String> {
     let response: NexusValidationResponse = nexus_client()
         .get(format!("{NEXUS_API_BASE}/users/validate"))
@@ -472,6 +542,7 @@ fn validate_nexus_api_key(api_key: &str) -> Result<NexusAuthStatus, String> {
     })
 }
 
+// → Function: resolve_nexus_download_url()
 fn resolve_nexus_download_url(link: NexusResolvedLink) -> Result<String, String> {
     let api_key = load_nexus_api_key()?
         .ok_or_else(|| "Save your Nexus Mods API key before installing Nexus links.".to_string())?;
@@ -516,10 +587,12 @@ fn resolve_nexus_download_url(link: NexusResolvedLink) -> Result<String, String>
 }
 
 trait NexusResponseExt {
+// → Function: pipe_nexus_download_response()
     fn pipe_nexus_download_response(self) -> Result<reqwest::blocking::Response, String>;
 }
 
 impl NexusResponseExt for reqwest::blocking::Response {
+// → Function: pipe_nexus_download_response()
     fn pipe_nexus_download_response(self) -> Result<reqwest::blocking::Response, String> {
         let status = self.status();
         if status.is_success() {
@@ -534,6 +607,7 @@ impl NexusResponseExt for reqwest::blocking::Response {
     }
 }
 
+// → Function: nexus_download_error_message()
 fn nexus_download_error_message(status: StatusCode, body: &str) -> String {
     if status == StatusCode::FORBIDDEN {
         return "Could not get Nexus download link: 403 Forbidden. If this is a non-Premium Nexus account, open the mod on nexusmods.com, click Mod Manager Download, and paste the generated nxm:// link here. Direct Nexus page URLs require Premium API download access.".to_string();
@@ -546,6 +620,7 @@ fn nexus_download_error_message(status: StatusCode, body: &str) -> String {
     }
 }
 
+// → Function: choose_default_nexus_file()
 fn choose_default_nexus_file(mod_id: u64, api_key: &str) -> Result<u64, String> {
     let response: NexusFilesResponse = nexus_client()
         .get(format!(
@@ -581,6 +656,7 @@ fn choose_default_nexus_file(mod_id: u64, api_key: &str) -> Result<u64, String> 
         .ok_or_else(|| "Nexus did not return any downloadable files for that mod.".to_string())
 }
 
+// → Function: parse_nexus_link()
 fn parse_nexus_link(input: &str) -> Result<Option<NexusResolvedLink>, String> {
     if input.starts_with("nxm://") {
         return parse_nxm_link(input).map(Some);
@@ -623,6 +699,7 @@ fn parse_nexus_link(input: &str) -> Result<Option<NexusResolvedLink>, String> {
     }))
 }
 
+// → Function: parse_nxm_link()
 fn parse_nxm_link(input: &str) -> Result<NexusResolvedLink, String> {
     let url = Url::parse(input).map_err(|err| format!("Invalid nxm link: {err}"))?;
     let segments = url.path_segments().map(|segments| segments.collect::<Vec<_>>());
@@ -664,6 +741,7 @@ fn parse_nxm_link(input: &str) -> Result<NexusResolvedLink, String> {
     })
 }
 
+// → Function: nexus_client()
 fn nexus_client() -> Client {
     Client::builder()
         .user_agent(format!("{APP_NAME}/{APP_VERSION}"))
@@ -678,6 +756,12 @@ fn nexus_client() -> Client {
         .expect("valid reqwest client")
 }
 
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// SECTION 10: HELPER FUNCTIONS - ARCHIVE OPERATIONS (lines 681-836)
+// Download, extract, and install mod archives
+// ════════════════════════════════════════════════════════════════════════════════════
+// → Function: ensure_command_exists()
 fn ensure_command_exists(command: &str) -> Result<(), String> {
     let status = Command::new("sh")
         .arg("-c")
@@ -691,6 +775,7 @@ fn ensure_command_exists(command: &str) -> Result<(), String> {
         .ok_or_else(|| format!("{command} is required to extract mod archives."))
 }
 
+// → Function: download_file()
 fn download_file(url: &str, destination: &Path) -> Result<(), String> {
     let mut response = reqwest::blocking::Client::builder()
         .user_agent("skyrim-auto-modder/0.1")
@@ -709,6 +794,7 @@ fn download_file(url: &str, destination: &Path) -> Result<(), String> {
     Ok(())
 }
 
+// → Function: extract_archive()
 fn extract_archive(archive_path: &Path, destination: &Path) -> Result<(), String> {
     let output = Command::new("bsdtar")
         .arg("-xf")
@@ -726,6 +812,7 @@ fn extract_archive(archive_path: &Path, destination: &Path) -> Result<(), String
     Err(format!("Could not extract archive with bsdtar: {}", stderr.trim()))
 }
 
+// → Function: detect_install_root()
 fn detect_install_root(staging_dir: &Path) -> Result<PathBuf, String> {
     let data_dir = staging_dir.join("Data");
     if data_dir.is_dir() {
@@ -747,6 +834,7 @@ fn detect_install_root(staging_dir: &Path) -> Result<PathBuf, String> {
     Ok(staging_dir.to_path_buf())
 }
 
+// → Function: directory_entries()
 fn directory_entries(path: &Path) -> Result<Vec<PathBuf>, String> {
     fs::read_dir(path)
         .map_err(|err| format!("Could not read extracted archive: {err}"))?
@@ -754,6 +842,7 @@ fn directory_entries(path: &Path) -> Result<Vec<PathBuf>, String> {
         .collect()
 }
 
+// → Function: copy_tree()
 fn copy_tree(source: &Path, destination: &Path) -> io::Result<Vec<InstalledFile>> {
     let mut copied = Vec::new();
     for entry in fs::read_dir(source)? {
@@ -780,6 +869,7 @@ fn copy_tree(source: &Path, destination: &Path) -> io::Result<Vec<InstalledFile>
     Ok(copied)
 }
 
+// → Function: install_extracted_mod()
 fn install_extracted_mod(install_root: &Path, game_dir: &Path, data_dir: &Path) -> io::Result<Vec<InstalledFile>> {
     if is_skse_runtime_layout(install_root) {
         return install_skse_runtime(install_root, game_dir, data_dir);
@@ -788,6 +878,7 @@ fn install_extracted_mod(install_root: &Path, game_dir: &Path, data_dir: &Path) 
     copy_tree(install_root, data_dir)
 }
 
+// → Function: is_skse_runtime_layout()
 fn is_skse_runtime_layout(install_root: &Path) -> bool {
     install_root.join("skse64_loader.exe").is_file()
         || fs::read_dir(install_root)
@@ -804,6 +895,7 @@ fn is_skse_runtime_layout(install_root: &Path) -> bool {
             })
 }
 
+// → Function: install_skse_runtime()
 fn install_skse_runtime(install_root: &Path, game_dir: &Path, data_dir: &Path) -> io::Result<Vec<InstalledFile>> {
     let mut copied = Vec::new();
     let bundled_data = install_root.join("Data");
@@ -835,6 +927,7 @@ fn install_skse_runtime(install_root: &Path, game_dir: &Path, data_dir: &Path) -
     Ok(copied)
 }
 
+// → Function: detect_install_warnings()
 fn detect_install_warnings(install_root: &Path) -> Vec<String> {
     let mut warnings = Vec::new();
     for folder in ["fomod", "FOMOD"] {
@@ -852,6 +945,7 @@ fn detect_install_warnings(install_root: &Path) -> Vec<String> {
     warnings
 }
 
+// → Function: steam_libraries()
 fn steam_libraries() -> Result<Vec<PathBuf>, String> {
     let mut libraries = BTreeSet::new();
     let home = home_dir().ok_or_else(|| "Could not resolve the home directory.".to_string())?;
@@ -879,6 +973,7 @@ fn steam_libraries() -> Result<Vec<PathBuf>, String> {
     Ok(libraries.into_iter().collect())
 }
 
+// → Function: parse_libraryfolders()
 fn parse_libraryfolders(path: &Path) -> Vec<PathBuf> {
     let Ok(contents) = fs::read_to_string(path) else {
         return Vec::new();
@@ -903,6 +998,7 @@ fn parse_libraryfolders(path: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+// → Function: find_manifest_for_game()
 fn find_manifest_for_game(game_dir: &Path) -> Option<PathBuf> {
     let common_dir = game_dir.parent()?;
     let steamapps_dir = common_dir.parent()?;
@@ -910,19 +1006,28 @@ fn find_manifest_for_game(game_dir: &Path) -> Option<PathBuf> {
     manifest.is_file().then_some(manifest)
 }
 
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// SECTION 11: HELPER FUNCTIONS - PATHS & CONFIG (lines 913-1020)
+// Configuration and data directory management
+// ════════════════════════════════════════════════════════════════════════════════════
+// → Function: home_dir()
 fn home_dir() -> Option<PathBuf> {
     env::var_os("HOME").map(PathBuf::from)
 }
 
+// → Function: path_to_string()
 fn path_to_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
+// → Function: app_data_dir()
 fn app_data_dir() -> Result<PathBuf, String> {
     let home = home_dir().ok_or_else(|| "Could not resolve the home directory.".to_string())?;
     Ok(home.join(".local/share/skyrim-auto-modder"))
 }
 
+// → Function: app_config_dir()
 fn app_config_dir() -> Result<PathBuf, String> {
     let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -931,14 +1036,17 @@ fn app_config_dir() -> Result<PathBuf, String> {
     Ok(project_root.join(".local/skyrim-auto-modder"))
 }
 
+// → Function: nexus_config_path()
 fn nexus_config_path() -> Result<PathBuf, String> {
     Ok(app_config_dir()?.join("nexus.json"))
 }
 
+// → Function: install_logs_path()
 fn install_logs_path() -> Result<PathBuf, String> {
     Ok(app_config_dir()?.join("install-log.json"))
 }
 
+// → Function: append_install_log()
 fn append_install_log(entry: InstallLogEntry) -> Result<(), String> {
     let path = install_logs_path()?;
     if let Some(parent) = path.parent() {
@@ -952,18 +1060,22 @@ fn append_install_log(entry: InstallLogEntry) -> Result<(), String> {
     fs::write(path, json).map_err(|err| format!("Could not save install logs: {err}"))
 }
 
+// → Function: installed_mods_dir()
 fn installed_mods_dir() -> Result<PathBuf, String> {
     Ok(app_config_dir()?.join("installed-mods"))
 }
 
+// → Function: installed_mod_manifest_path()
 fn installed_mod_manifest_path(id: &str) -> Result<PathBuf, String> {
     Ok(installed_mods_dir()?.join(format!("{}.json", sanitize_filename(id))))
 }
 
+// → Function: local_archives_dir()
 fn local_archives_dir() -> Result<PathBuf, String> {
     Ok(app_config_dir()?.join("archives"))
 }
 
+// → Function: copy_archive_to_local_store()
 fn copy_archive_to_local_store(source: &Path, filename: &str) -> Result<PathBuf, String> {
     let archives_dir = local_archives_dir()?;
     fs::create_dir_all(&archives_dir)
@@ -975,6 +1087,7 @@ fn copy_archive_to_local_store(source: &Path, filename: &str) -> Result<PathBuf,
     Ok(destination)
 }
 
+// → Function: save_installed_mod()
 fn save_installed_mod(installed_mod: &InstalledMod) -> Result<(), String> {
     let registry_dir = installed_mods_dir()?;
     fs::create_dir_all(&registry_dir)
@@ -986,6 +1099,7 @@ fn save_installed_mod(installed_mod: &InstalledMod) -> Result<(), String> {
         .map_err(|err| format!("Could not save installed mod manifest: {err}"))
 }
 
+// → Function: load_nexus_api_key()
 fn load_nexus_api_key() -> Result<Option<String>, String> {
     let path = nexus_config_path()?;
     if !path.is_file() {
@@ -999,12 +1113,14 @@ fn load_nexus_api_key() -> Result<Option<String>, String> {
     Ok(Some(config.api_key))
 }
 
+// → Function: filename_from_url()
 fn filename_from_url(url: &str) -> Option<String> {
     let without_query = url.split('?').next()?;
     let name = without_query.rsplit('/').next()?.trim();
     (!name.is_empty()).then(|| sanitize_filename(name))
 }
 
+// → Function: sanitize_filename()
 fn sanitize_filename(name: &str) -> String {
     let sanitized: String = name
         .chars()
@@ -1017,6 +1133,7 @@ fn sanitize_filename(name: &str) -> String {
     sanitized.trim_matches('-').to_string()
 }
 
+// → Function: timestamp()
 fn timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1025,6 +1142,12 @@ fn timestamp() -> u64 {
 }
 
 #[tauri::command]
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// SECTION 12: TAURI COMMANDS - SAVES & GAME (lines 1028-1211)
+// Find save game files and launch the game
+// ════════════════════════════════════════════════════════════════════════════════════
+// → Function: get_saves_locations()
 fn get_saves_locations(game_dir: String) -> Result<Vec<SavesLocation>, String> {
     let mut locations = Vec::new();
 
@@ -1107,6 +1230,11 @@ fn get_saves_locations(game_dir: String) -> Result<Vec<SavesLocation>, String> {
     Ok(locations)
 }
 
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// SECTION 13: HELPER FUNCTIONS - SAVES (lines 1110-1129)
+// ════════════════════════════════════════════════════════════════════════════════════
+// → Function: count_save_files()
 fn count_save_files(dir: &Path) -> usize {
     if !dir.is_dir() {
         return 0;
@@ -1129,6 +1257,7 @@ fn count_save_files(dir: &Path) -> usize {
 }
 
 #[tauri::command]
+// → Function: run_skyrim()
 fn run_skyrim(game_dir: String, use_skse: bool) -> Result<String, String> {
     let game_path = PathBuf::from(&game_dir);
     let installation = inspect_installation(&game_path);
@@ -1178,6 +1307,12 @@ fn run_skyrim(game_dir: String, use_skse: bool) -> Result<String, String> {
     Ok(format!("Skyrim started{}", if use_skse { " with SKSE" } else { "" }))
 }
 
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// SECTION 14: HELPER FUNCTIONS - GAME LAUNCHING (lines 1181-1211)
+// Launch game via native execution or Proton
+// ════════════════════════════════════════════════════════════════════════════════════
+// → Function: run_natively()
 fn run_natively(exe_path: &str) -> Result<(), String> {
     Command::new(exe_path)
         .spawn()
@@ -1185,6 +1320,7 @@ fn run_natively(exe_path: &str) -> Result<(), String> {
     Ok(())
 }
 
+// → Function: run_with_proton()
 fn run_with_proton(exe_path: &str, game_dir: &str) -> Result<(), String> {
     let home = home_dir().ok_or("Could not resolve home directory")?;
     
@@ -1210,7 +1346,13 @@ fn run_with_proton(exe_path: &str, game_dir: &str) -> Result<(), String> {
     Ok(())
 }
 
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// SECTION 15: ENTRY POINT (lines 1214-1246)
+// Tauri app initialization and setup
+// ════════════════════════════════════════════════════════════════════════════════════
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+// → Function: run()
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
