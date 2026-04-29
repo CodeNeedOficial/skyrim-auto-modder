@@ -10,6 +10,7 @@ import folderOpenIcon from "lucide-static/icons/folder-open.svg?raw";
 import folderSearchIcon from "lucide-static/icons/folder-search.svg?raw";
 import listIcon from "lucide-static/icons/list.svg?raw";
 import packageIcon from "lucide-static/icons/package.svg?raw";
+import playIcon from "lucide-static/icons/play.svg?raw";
 import radarIcon from "lucide-static/icons/radar.svg?raw";
 import refreshCwIcon from "lucide-static/icons/refresh-cw.svg?raw";
 import shieldIcon from "lucide-static/icons/shield.svg?raw";
@@ -141,6 +142,7 @@ const icons: Record<string, string> = {
   "folder-search": folderSearchIcon,
   list: listIcon,
   package: packageIcon,
+  play: playIcon,
   radar: radarIcon,
   "refresh-cw": refreshCwIcon,
   shield: shieldIcon,
@@ -230,6 +232,8 @@ function renderSelected(item: SkyrimInstallation | null): string {
       </div>
 
       <div class="actions">
+        <button id="run-game">${icon("play")}Run Skyrim</button>
+        <button class="secondary" id="run-game-skse">${icon("play")}Run with SKSE</button>
         <button class="secondary" id="reveal-game">${icon("folder-open")}Reveal folder</button>
         <button class="secondary" id="rescan">${icon("refresh-cw")}Scan again</button>
       </div>
@@ -643,6 +647,13 @@ async function uninstallInstalledMod(id: string): Promise<void> {
   });
 }
 
+async function runGame(gameDir: string, useSKSE: boolean): Promise<void> {
+  await withBusy(useSKSE ? "Starting Skyrim with SKSE..." : "Starting Skyrim...", async () => {
+    const message = await invoke<string>("run_skyrim", { game_dir: gameDir, use_skse: useSKSE });
+    state.status = message;
+  });
+}
+
 function bindEvents(): void {
   document.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -716,6 +727,20 @@ function bindEvents(): void {
       return;
     }
     await revealItemInDir(state.selected.game_dir);
+  });
+
+  document.querySelector<HTMLButtonElement>("#run-game")?.addEventListener("click", async () => {
+    if (!state.selected) {
+      return;
+    }
+    await runGame(state.selected.game_dir, false);
+  });
+
+  document.querySelector<HTMLButtonElement>("#run-game-skse")?.addEventListener("click", async () => {
+    if (!state.selected) {
+      return;
+    }
+    await runGame(state.selected.game_dir, true);
   });
 
   document.querySelectorAll<HTMLButtonElement>("[data-uninstall]").forEach((button) => {

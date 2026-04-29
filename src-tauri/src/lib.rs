@@ -1016,6 +1016,88 @@ fn timestamp() -> u64 {
         .unwrap_or(0)
 }
 
+#[tauri::command]
+fn run_skyrim(game_dir: String, use_skse: bool) -> Result<String, String> {
+    let game_path = PathBuf::from(&game_dir);
+    let installation = inspect_installation(&game_path);
+    
+    if !installation.valid && installation.issues.iter().any(|i| !i.contains("SKSE")) {
+        return Err(format!(
+            "Invalid Skyrim installation: {}",
+            installation.issues.join(", ")
+        ));
+    }
+
+    if use_skse && installation.skse_loader_path.is_none() {
+        return Err("SKSE loader is not installed. Cannot run with SKSE.".to_string());
+    }
+
+    // Determine the executable to run
+    let exe_to_run = if use_skse {
+        installation
+            .skse_loader_path
+            .as_ref()
+            .ok_or("SKSE loader path not found")?
+            .clone()
+    } else {
+        installation
+            .exe_path
+            .as_ref()
+            .ok_or("SkyrimSE.exe not found")?
+            .clone()
+    };
+
+    // Check if this is a Steam installation with Proton
+    let has_proton = if let Some(manifest_path) = &installation.steam_app_manifest {
+        PathBuf::from(manifest_path).exists()
+    } else {
+        false
+    };
+
+    // Run the game
+    if has_proton {
+        // Use Proton through Steam
+        run_with_proton(&exe_to_run, &game_dir)?;
+    } else {
+        // Direct native execution
+        run_natively(&exe_to_run)?;
+    }
+
+    Ok(format!("Skyrim started{}", if use_skse { " with SKSE" } else { "" }))
+}
+
+fn run_natively(exe_path: &str) -> Result<(), String> {
+    Command::new(exe_path)
+        .spawn()
+        .map_err(|err| format!("Could not start Skyrim: {err}"))?;
+    Ok(())
+}
+
+fn run_with_proton(exe_path: &str, game_dir: &str) -> Result<(), String> {
+    let home = home_dir().ok_or("Could not resolve home directory")?;
+    
+    // Find Steam runtime and Proton
+    let steam_root = home.join(".steam/steam");
+    
+    // Construct Proton environment
+    let mut cmd = Command::new("sh");
+    cmd.arg("-c");
+    
+    // Build the Proton command
+    let proton_cmd = format!(
+        "cd \"{}\" && STEAM_COMPAT_TOOL_PATHS=\"{}\" PROTON_USE_WINED3D=1 \"{}\"",
+        game_dir,
+        steam_root.join("compatibilitytools.d").to_string_lossy(),
+        exe_path
+    );
+    
+    cmd.arg(&proton_cmd);
+    cmd.spawn()
+        .map_err(|err| format!("Could not start Skyrim with Proton: {err}"))?;
+    
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1043,7 +1125,8 @@ pub fn run() {
             list_install_logs,
             clear_install_logs,
             append_install_log_entry,
-            install_mod_from_url
+            install_mod_from_url,
+            run_skyrim
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
