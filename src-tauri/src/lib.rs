@@ -1016,9 +1016,17 @@ fn timestamp() -> u64 {
         .unwrap_or(0)
 }
 
+#[derive(Debug, Deserialize)]
+struct RunSkyrimParams {
+    #[serde(rename = "gameDir")]
+    game_dir: String,
+    #[serde(rename = "useSkse")]
+    use_skse: bool,
+}
+
 #[tauri::command]
-fn run_skyrim(game_dir: String, use_skse: bool) -> Result<String, String> {
-    let game_path = PathBuf::from(&game_dir);
+fn run_skyrim(params: RunSkyrimParams) -> Result<String, String> {
+    let game_path = PathBuf::from(&params.game_dir);
     let installation = inspect_installation(&game_path);
     
     if !installation.valid && installation.issues.iter().any(|i| !i.contains("SKSE")) {
@@ -1028,12 +1036,12 @@ fn run_skyrim(game_dir: String, use_skse: bool) -> Result<String, String> {
         ));
     }
 
-    if use_skse && installation.skse_loader_path.is_none() {
+    if params.use_skse && installation.skse_loader_path.is_none() {
         return Err("SKSE loader is not installed. Cannot run with SKSE.".to_string());
     }
 
     // Determine the executable to run
-    let exe_to_run = if use_skse {
+    let exe_to_run = if params.use_skse {
         installation
             .skse_loader_path
             .as_ref()
@@ -1057,13 +1065,13 @@ fn run_skyrim(game_dir: String, use_skse: bool) -> Result<String, String> {
     // Run the game
     if has_proton {
         // Use Proton through Steam
-        run_with_proton(&exe_to_run, &game_dir)?;
+        run_with_proton(&exe_to_run, &params.game_dir)?;
     } else {
         // Direct native execution
         run_natively(&exe_to_run)?;
     }
 
-    Ok(format!("Skyrim started{}", if use_skse { " with SKSE" } else { "" }))
+    Ok(format!("Skyrim started{}", if params.use_skse { " with SKSE" } else { "" }))
 }
 
 fn run_natively(exe_path: &str) -> Result<(), String> {
