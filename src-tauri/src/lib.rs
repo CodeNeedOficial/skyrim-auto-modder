@@ -32,6 +32,14 @@ struct SkyrimInstallation {
 }
 
 #[derive(Debug, Serialize)]
+struct SavesLocation {
+    name: String,
+    path: String,
+    exists: bool,
+    save_count: usize,
+}
+
+#[derive(Debug, Serialize)]
 struct ModInstallResult {
     name: String,
     source_url: String,
@@ -1017,6 +1025,110 @@ fn timestamp() -> u64 {
 }
 
 #[tauri::command]
+fn get_saves_locations(game_dir: String) -> Result<Vec<SavesLocation>, String> {
+    let mut locations = Vec::new();
+
+    let home = home_dir().ok_or("Could not resolve home directory")?;
+
+    // Standard Skyrim saves location
+    let standard_saves = home.join("Documents/My Games/Skyrim Special Edition/Saves");
+    let standard_count = count_save_files(&standard_saves);
+    locations.push(SavesLocation {
+        name: "Standard (Documents)".to_string(),
+        path: path_to_string(&standard_saves),
+        exists: standard_saves.exists(),
+        save_count: standard_count,
+    });
+
+    // Proton default prefix location (for Steam)
+    let proton_saves = home.join(".local/share/Steam/steamapps/compatdata/489830/pfx/drive_c/users/steamuser/Documents/My Games/Skyrim Special Edition/Saves");
+    let proton_count = count_save_files(&proton_saves);
+    locations.push(SavesLocation {
+        name: "Proton (Steam)".to_string(),
+        path: path_to_string(&proton_saves),
+        exists: proton_saves.exists(),
+        save_count: proton_count,
+    });
+
+    // MO2 profile-specific saves (common locations)
+    if let Some(mo2_appdata) = env::var_os("APPDATA") {
+        let mo2_base = PathBuf::from(mo2_appdata).join("ModOrganizer2");
+        if mo2_base.exists() {
+            // Check for common MO2 instances
+            for entry in fs::read_dir(&mo2_base).unwrap_or_else(|_| {
+                fs::read_dir(home.join("AppData/Roaming/ModOrganizer2"))
+                    .unwrap_or_else(|_| panic!("Could not read MO2 directory"))
+            }) {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        let profiles_dir = path.join("profiles");
+                        if profiles_dir.exists() {
+                            if let Ok(profiles) = fs::read_dir(&profiles_dir) {
+                                for profile in profiles.filter_map(|e| e.ok()) {
+                                    let profile_path = profile.path();
+                                    if profile_path.is_dir() {
+                                        let saves_dir = profile_path.join("Skyrim Special Edition/Saves");
+                                        let profile_name = profile_path
+                                            .file_name()
+                                            .and_then(|n| n.to_str())
+                                            .map(|s| s.to_string())
+                                            .unwrap_or_else(|| "Unknown".to_string());
+                                        let save_count = count_save_files(&saves_dir);
+                                        locations.push(SavesLocation {
+                                            name: format!("MO2 Profile: {}", profile_name),
+                                            path: path_to_string(&saves_dir),
+                                            exists: saves_dir.exists(),
+                                            save_count,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Also check in game directory (sometimes saves are there with mods)
+    let game_path = PathBuf::from(&game_dir);
+    let game_saves = game_path.join("Saves");
+    if game_saves.exists() && game_saves != standard_saves && game_saves != proton_saves {
+        let save_count = count_save_files(&game_saves);
+        locations.push(SavesLocation {
+            name: "Game Directory".to_string(),
+            path: path_to_string(&game_saves),
+            exists: true,
+            save_count,
+        });
+    }
+
+    Ok(locations)
+}
+
+fn count_save_files(dir: &Path) -> usize {
+    if !dir.is_dir() {
+        return 0;
+    }
+    fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .filter(|entry| {
+                    entry
+                        .path()
+                        .extension()
+                        .and_then(|ext| ext.to_str())
+                        .map(|ext| ext.eq_ignore_ascii_case("ess"))
+                        .unwrap_or(false)
+                })
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+#[tauri::command]
 fn run_skyrim(game_dir: String, use_skse: bool) -> Result<String, String> {
     let game_path = PathBuf::from(&game_dir);
     let installation = inspect_installation(&game_path);
@@ -1126,6 +1238,7 @@ pub fn run() {
             clear_install_logs,
             append_install_log_entry,
             install_mod_from_url,
+            get_saves_locations,
             run_skyrim
         ])
         .run(tauri::generate_context!())

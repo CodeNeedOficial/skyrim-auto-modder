@@ -28,6 +28,13 @@ type SkyrimInstallation = {
   issues: string[];
 };
 
+type SavesLocation = {
+  name: string;
+  path: string;
+  exists: boolean;
+  save_count: number;
+};
+
 type ModInstallResult = {
   name: string;
   source_url: string;
@@ -93,6 +100,7 @@ type AppState = {
   nexusStatus: NexusAuthStatus;
   installedMods: InstalledMod[];
   installLog: InstallLog[];
+  savesLocations: SavesLocation[];
   status: string;
   busy: boolean;
 };
@@ -111,6 +119,7 @@ const state: AppState = {
   },
   installedMods: [],
   installLog: [],
+  savesLocations: [],
   status: "Ready",
   busy: false
 };
@@ -230,6 +239,33 @@ function renderSelected(item: SkyrimInstallation | null): string {
         <h3>Validation</h3>
         <ul>${issueList}</ul>
       </div>
+
+      ${
+        state.savesLocations.length > 0
+          ? `
+      <div class="saves">
+        <h3>Game Saves Locations</h3>
+        <ul>
+          ${state.savesLocations
+            .map(
+              (location) => `
+            <li>
+              <strong>${escapeHtml(location.name)}</strong>
+              ${
+                location.exists
+                  ? `<span class="muted">${location.save_count} save${location.save_count === 1 ? "" : "s"}</span>`
+                  : '<span class="muted">Not found</span>'
+              }
+              <span class="path">${escapeHtml(location.path)}</span>
+            </li>
+          `
+            )
+            .join("")}
+        </ul>
+      </div>
+      `
+          : ""
+      }
 
       <div class="actions">
         <button id="run-game">${icon("play")}Run Skyrim</button>
@@ -444,6 +480,9 @@ async function scan(): Promise<void> {
     const installations = await invoke<SkyrimInstallation[]>("scan_skyrim_installations");
     state.installations = installations;
     state.selected = installations[0] ?? null;
+    if (state.selected) {
+      await loadSavesLocations(state.selected.game_dir);
+    }
     state.status = installations.length
       ? `Found ${installations.length} installation${installations.length === 1 ? "" : "s"}.`
       : "No Skyrim Special Edition install found in Steam libraries.";
@@ -467,6 +506,7 @@ async function validateManualPath(path: string): Promise<void> {
       state.installations = [installation, ...state.installations];
     }
     state.selected = installation;
+    await loadSavesLocations(installation.game_dir);
     state.status = installation.valid ? "Folder validated." : "Folder found, but needs attention.";
   });
 }
@@ -626,6 +666,15 @@ async function loadInstallLogs(shouldRender = true): Promise<void> {
   }
 }
 
+async function loadSavesLocations(gameDir: string): Promise<void> {
+  try {
+    state.savesLocations = await invoke<SavesLocation[]>("get_saves_locations", { game_dir: gameDir });
+  } catch (error) {
+    state.status = error instanceof Error ? error.message : String(error);
+    state.savesLocations = [];
+  }
+}
+
 async function uninstallInstalledMod(id: string): Promise<void> {
   const mod = state.installedMods.find((item) => item.id === id);
   if (!mod) {
@@ -717,9 +766,12 @@ function bindEvents(): void {
   });
 
   document.querySelectorAll<HTMLButtonElement>("[data-select]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const index = Number(button.dataset.select);
       state.selected = state.installations[index] ?? null;
+      if (state.selected) {
+        await loadSavesLocations(state.selected.game_dir);
+      }
       state.status = state.selected ? `Selected ${state.selected.name}.` : "Selection cleared.";
       render();
     });
