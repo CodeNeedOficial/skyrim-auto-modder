@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Skyrim Auto Modder",
+  "version": "0.1.0",
+  "identifier": "com.soethe.skyrim-auto-modder",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Skyrim Auto Modder",
+        "width": 1120,
+        "height": 720,
+        "minWidth": 760,
+        "minHeight": 520
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": []
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["nxm"]
+      }
+    }
+  }
+}
